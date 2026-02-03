@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "playlab-whatsapp-bridge"
+version = "0.1.0"
+description = "WhatsApp bridge server for Playlab.ai"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi",
+  "uvicorn",
+  "httpx",
+  "sqlalchemy",
+  "asyncpg",
+  "redis",
+  "python-dotenv",
+  "pytest",
+  "pytest-asyncio",
+]
