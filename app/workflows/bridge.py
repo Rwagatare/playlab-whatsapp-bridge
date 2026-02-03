@@ -1,6 +1,6 @@
 from app.core.config import Settings
 from app.privacy.pseudonymize import pseudonymize_user_id
-from app.services.playlab import PlaylabClient
+from app.services.playlab_service import PlaylabService
 from app.services.turnio import TurnioClient
 
 
@@ -26,13 +26,17 @@ async def handle_inbound_message(payload: dict, settings: Settings) -> None:
 
     pseudonymous_user_id = pseudonymize_user_id(sender, settings.salt)
 
-    playlab_client = PlaylabClient(api_key=settings.playlab_api_key)
+    playlab_client = PlaylabService(
+        api_key=settings.playlab_api_key,
+        project_id=settings.playlab_project_id,
+        base_url=settings.playlab_base_url,
+    )
     turnio_client = TurnioClient(api_key=settings.turnio_api_key)
 
+    _ = (image, pseudonymous_user_id)
+    conversation_id = await playlab_client.create_conversation()
     response_text = await playlab_client.send_message(
-        app_id="placeholder-app",
-        message_text=text,
-        image_url=image,
-        user_id=pseudonymous_user_id,
+        conversation_id=conversation_id,
+        message=text or "",
     )
     await turnio_client.send_message(to=sender, text=response_text)

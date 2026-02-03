@@ -8,6 +8,8 @@ class Settings:
     redis_url: str
     salt: str
     playlab_api_key: str
+    playlab_project_id: str
+    playlab_base_url: str
     turnio_api_key: str
 
 
@@ -26,5 +28,7 @@ def get_settings() -> Settings:
         redis_url=_get_env("REDIS_URL"),
         salt=_get_env("SALT"),
         playlab_api_key=_get_env("PLAYLAB_API_KEY"),
+        playlab_project_id=_get_env("PLAYLAB_PROJECT_ID"),
+        playlab_base_url=_get_env("PLAYLAB_BASE_URL"),
         turnio_api_key=_get_env("TURNIO_API_KEY"),
     )
