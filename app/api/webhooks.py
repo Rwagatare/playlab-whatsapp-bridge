@@ -1,5 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query
 
+from app.core.config import get_settings
+from app.workflows.bridge import handle_inbound_message
+
 
 router = APIRouter()
 
@@ -15,3 +18,11 @@ async def verify_webhook(
         raise HTTPException(status_code=400, detail="Missing webhook parameters")
     # Placeholder until verify token is introduced in later sprint.
     return hub_challenge
+
+
+@router.post("/webhook")
+async def receive_webhook(payload: dict) -> dict[str, str]:
+    # Minimal inbound handler; orchestration lives in the workflow layer.
+    settings = get_settings()
+    await handle_inbound_message(payload, settings)
+    return {"status": "accepted"}
