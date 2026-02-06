@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.core.config import get_settings
-from app.workflows.bridge import handle_inbound_message
+from app.workflows.bridge import handle_inbound_message, handle_twilio_message
 
 
 router = APIRouter()
@@ -21,8 +21,14 @@ async def verify_webhook(
 
 
 @router.post("/webhook")
-async def receive_webhook(payload: dict) -> dict[str, str]:
+async def receive_webhook(request: Request) -> dict[str, str]:
     # Minimal inbound handler; orchestration lives in the workflow layer.
     settings = get_settings()
-    await handle_inbound_message(payload, settings)
+    content_type = request.headers.get("content-type", "")
+    if content_type.startswith("application/json"):
+        payload = await request.json()
+        await handle_inbound_message(payload, settings)
+    else:
+        form = await request.form()
+        await handle_twilio_message(dict(form), settings)
     return {"status": "accepted"}

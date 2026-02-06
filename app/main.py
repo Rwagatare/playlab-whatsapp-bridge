@@ -1,10 +1,15 @@
 from fastapi import FastAPI
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from app.api.router import router as api_router
 from app.core.config import get_settings
+from app.schemas.inbound import InboundMessage
 from app.services.playlab_service import PlaylabService
+from app.workflows.bridge import process_inbound_message
 
+
+load_dotenv()
 
 app = FastAPI()
 # Central router keeps HTTP surface area organized.
@@ -29,7 +34,26 @@ async def test_playlab(payload: TestPlaylabRequest) -> dict[str, str]:
         api_key=settings.playlab_api_key,
         project_id=settings.playlab_project_id,
         base_url=settings.playlab_base_url,
+        mock_mode=settings.mock_mode,
     )
     conversation_id = await service.create_conversation()
     response_text = await service.send_message(conversation_id, payload.message)
+    return {"response": response_text}
+
+
+class DemoBridgeRequest(BaseModel):
+    message: str
+    sender_id: str = "demo-user"
+
+
+@app.post("/demo/bridge")
+async def demo_bridge(payload: DemoBridgeRequest) -> dict[str, str]:
+    # Demo endpoint that runs the full bridge flow without external sends.
+    settings = get_settings()
+    inbound = InboundMessage(
+        sender_id=payload.sender_id,
+        text=payload.message,
+        image_url=None,
+    )
+    response_text = await process_inbound_message(inbound, settings)
     return {"response": response_text}

@@ -7,10 +7,16 @@ class Settings:
     database_url: str
     redis_url: str
     salt: str
+    mock_mode: bool
+    provider: str
     playlab_api_key: str
     playlab_project_id: str
     playlab_base_url: str
     turnio_api_key: str
+    turnio_base_url: str
+    twilio_account_sid: str
+    twilio_auth_token: str
+    twilio_whatsapp_number: str
 
 
 def _get_env(name: str) -> str:
@@ -21,14 +27,56 @@ def _get_env(name: str) -> str:
     return value
 
 
+def _get_env_optional(name: str, default: str = "") -> str:
+    value = os.getenv(name, "").strip()
+    return value or default
+
+
+def _get_bool_env(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def get_settings() -> Settings:
     # Centralized configuration access point.
+    mock_mode = _get_bool_env("MOCK_MODE", default=False)
+    provider = _get_env_optional("PROVIDER", "turnio").lower()
+    if mock_mode:
+        return Settings(
+            database_url=_get_env_optional("DATABASE_URL", "mock"),
+            redis_url=_get_env_optional("REDIS_URL", "mock"),
+            salt=_get_env_optional("SALT", "mock-salt"),
+            mock_mode=True,
+            provider=provider,
+            playlab_api_key=_get_env_optional("PLAYLAB_API_KEY", "mock"),
+            playlab_project_id=_get_env_optional("PLAYLAB_PROJECT_ID", "mock"),
+            playlab_base_url=_get_env_optional("PLAYLAB_BASE_URL", "mock"),
+            turnio_api_key=_get_env_optional("TURNIO_API_KEY", "mock"),
+            turnio_base_url=_get_env_optional("TURNIO_BASE_URL", "mock"),
+            twilio_account_sid=_get_env_optional("TWILIO_ACCOUNT_SID", "mock"),
+            twilio_auth_token=_get_env_optional("TWILIO_AUTH_TOKEN", "mock"),
+            twilio_whatsapp_number=_get_env_optional(
+                "TWILIO_WHATSAPP_NUMBER",
+                "mock",
+            ),
+        )
     return Settings(
         database_url=_get_env("DATABASE_URL"),
         redis_url=_get_env("REDIS_URL"),
         salt=_get_env("SALT"),
+        mock_mode=False,
+        provider=provider,
         playlab_api_key=_get_env("PLAYLAB_API_KEY"),
         playlab_project_id=_get_env("PLAYLAB_PROJECT_ID"),
         playlab_base_url=_get_env("PLAYLAB_BASE_URL"),
-        turnio_api_key=_get_env("TURNIO_API_KEY"),
+        turnio_api_key=_get_env_optional("TURNIO_API_KEY", "unused"),
+        turnio_base_url=_get_env_optional("TURNIO_BASE_URL", "unused"),
+        twilio_account_sid=_get_env_optional("TWILIO_ACCOUNT_SID", "unused"),
+        twilio_auth_token=_get_env_optional("TWILIO_AUTH_TOKEN", "unused"),
+        twilio_whatsapp_number=_get_env_optional(
+            "TWILIO_WHATSAPP_NUMBER",
+            "unused",
+        ),
     )
