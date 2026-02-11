@@ -1,6 +1,9 @@
+import logging
 from dataclasses import dataclass
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -17,6 +20,7 @@ class PlaylabService:
         if self.mock_mode:
             return "mock-conversation"
         url = f"{self.base_url}/projects/{self.project_id}/conversations"
+        logger.info("Playlab create_conversation: POST %s", url)
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(
@@ -24,10 +28,17 @@ class PlaylabService:
                     headers={**self._headers(), "Content-Type": "application/json"},
                     json={},
                 )
+                logger.info(
+                    "Playlab create_conversation response: status=%s body=%s",
+                    response.status_code,
+                    response.text[:500],
+                )
                 response.raise_for_status()
                 payload = response.json()
         except httpx.HTTPError as exc:
-            raise RuntimeError("Playlab conversation creation failed") from exc
+            raise RuntimeError(
+                f"Playlab conversation creation failed: {exc}"
+            ) from exc
 
         conversation_id = payload.get("conversation", {}).get("id")
         if not conversation_id:
@@ -42,6 +53,7 @@ class PlaylabService:
             f"/conversations/{conversation_id}/messages"
         )
         body = {"input": {"message": message}}
+        logger.info("Playlab send_message: POST %s", url)
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
@@ -49,9 +61,14 @@ class PlaylabService:
                     headers={**self._headers(), "Content-Type": "application/json"},
                     json=body,
                 )
+                logger.info(
+                    "Playlab send_message response: status=%s body=%s",
+                    response.status_code,
+                    response.text[:500],
+                )
                 response.raise_for_status()
         except httpx.HTTPError as exc:
-            raise RuntimeError("Playlab message send failed") from exc
+            raise RuntimeError(f"Playlab message send failed: {exc}") from exc
 
         content_type = response.headers.get("content-type", "")
         if content_type.startswith("application/json"):

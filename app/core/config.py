@@ -17,6 +17,10 @@ class Settings:
     twilio_account_sid: str
     twilio_auth_token: str
     twilio_whatsapp_number: str
+    llm_provider: str
+    anthropic_api_key: str
+    claude_model: str
+    claude_system_prompt: str
 
 
 def _get_env(name: str) -> str:
@@ -43,6 +47,12 @@ def get_settings() -> Settings:
     # Centralized configuration access point.
     mock_mode = _get_bool_env("MOCK_MODE", default=False)
     provider = _get_env_optional("PROVIDER", "turnio").lower()
+    llm_provider = _get_env_optional("LLM_PROVIDER", "playlab").lower()
+    claude_model = _get_env_optional("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
+    claude_system_prompt = _get_env_optional(
+        "CLAUDE_SYSTEM_PROMPT",
+        "You are a helpful assistant on WhatsApp. Keep responses concise and friendly.",
+    )
     if mock_mode:
         return Settings(
             database_url=_get_env_optional("DATABASE_URL", "mock"),
@@ -61,6 +71,10 @@ def get_settings() -> Settings:
                 "TWILIO_WHATSAPP_NUMBER",
                 "mock",
             ),
+            llm_provider=llm_provider,
+            anthropic_api_key=_get_env_optional("ANTHROPIC_API_KEY", "mock"),
+            claude_model=claude_model,
+            claude_system_prompt=claude_system_prompt,
         )
     return Settings(
         database_url=_get_env("DATABASE_URL"),
@@ -68,9 +82,9 @@ def get_settings() -> Settings:
         salt=_get_env("SALT"),
         mock_mode=False,
         provider=provider,
-        playlab_api_key=_get_env("PLAYLAB_API_KEY"),
-        playlab_project_id=_get_env("PLAYLAB_PROJECT_ID"),
-        playlab_base_url=_get_env("PLAYLAB_BASE_URL"),
+        playlab_api_key=_get_env_optional("PLAYLAB_API_KEY", "unused"),
+        playlab_project_id=_get_env_optional("PLAYLAB_PROJECT_ID", "unused"),
+        playlab_base_url=_get_env_optional("PLAYLAB_BASE_URL", "unused"),
         turnio_api_key=_get_env_optional("TURNIO_API_KEY", "unused"),
         turnio_base_url=_get_env_optional("TURNIO_BASE_URL", "unused"),
         twilio_account_sid=_get_env_optional("TWILIO_ACCOUNT_SID", "unused"),
@@ -79,4 +93,8 @@ def get_settings() -> Settings:
             "TWILIO_WHATSAPP_NUMBER",
             "unused",
         ),
+        llm_provider=llm_provider,
+        anthropic_api_key=_get_env_optional("ANTHROPIC_API_KEY", ""),
+        claude_model=claude_model,
+        claude_system_prompt=claude_system_prompt,
     )

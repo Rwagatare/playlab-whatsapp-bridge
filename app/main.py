@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -5,9 +7,15 @@ from pydantic import BaseModel
 from app.api.router import router as api_router
 from app.core.config import get_settings
 from app.schemas.inbound import InboundMessage
+from app.services.claude_service import ClaudeService
 from app.services.playlab_service import PlaylabService
 from app.workflows.bridge import process_inbound_message
 
+# Configure logging so we can see what's happening
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
 
 load_dotenv()
 
@@ -38,6 +46,20 @@ async def test_playlab(payload: TestPlaylabRequest) -> dict[str, str]:
     )
     conversation_id = await service.create_conversation()
     response_text = await service.send_message(conversation_id, payload.message)
+    return {"response": response_text}
+
+
+@app.post("/test-claude")
+async def test_claude(payload: TestPlaylabRequest) -> dict[str, str]:
+    # Lightweight endpoint to validate Claude connectivity.
+    settings = get_settings()
+    service = ClaudeService(
+        api_key=settings.anthropic_api_key,
+        model=settings.claude_model,
+        system_prompt=settings.claude_system_prompt,
+        mock_mode=settings.mock_mode,
+    )
+    response_text = await service.send_message(payload.message)
     return {"response": response_text}
 
 
