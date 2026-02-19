@@ -13,10 +13,13 @@ dependencies = [
   "httpx",
   "sqlalchemy",
   "asyncpg",
+  "greenlet",
+  "alembic",
   "redis",
   "python-dotenv",
   "python-multipart",
   "anthropic",
   "pytest",
   "pytest-asyncio",
+  "aiosqlite",
 ]

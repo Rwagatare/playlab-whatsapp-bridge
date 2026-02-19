@@ -1,6 +1,11 @@
 import logging
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import Settings
+from app.db.engine import get_session_or_none
+from app.db.models import User
 from app.parsers.turnio import parse_inbound as parse_turnio_inbound
 from app.parsers.twilio import parse_inbound as parse_twilio_inbound
 from app.privacy.pseudonymize import pseudonymize_user_id
@@ -13,6 +18,20 @@ from app.schemas.inbound import InboundMessage
 logger = logging.getLogger(__name__)
 
 
+async def _ensure_user(session: AsyncSession, phone_hash: str) -> User:
+    """Look up a user by phone_hash, or create one if they don't exist yet."""
+    stmt = select(User).where(User.phone_hash == phone_hash)
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+    if user is None:
+        user = User(phone_hash=phone_hash)
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        logger.info("Created new user for phone_hash=%s...", phone_hash[:8])
+    return user
+
+
 async def process_inbound_message(
     inbound: InboundMessage,
     settings: Settings,
@@ -22,7 +41,15 @@ async def process_inbound_message(
         inbound.sender_id,
         settings.salt,
     )
-    _ = (inbound.image_url, pseudonymous_user_id)
+
+    # Persist user if database is available (graceful degradation).
+    async for session in get_session_or_none():
+        if session is not None:
+            try:
+                await _ensure_user(session, pseudonymous_user_id)
+            except Exception:
+                logger.warning("DB write failed; continuing without persistence", exc_info=True)
+        break
 
     message_text = inbound.text or ""
 
