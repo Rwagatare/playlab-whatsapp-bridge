@@ -1,7 +1,6 @@
+import json
 import logging
 from dataclasses import dataclass
-
-import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +18,7 @@ class PlaylabService:
     async def create_conversation(self) -> str:
         if self.mock_mode:
             return "mock-conversation"
+        import httpx
         url = f"{self.base_url}/projects/{self.project_id}/conversations"
         logger.info("Playlab create_conversation: POST %s", url)
         try:
@@ -48,6 +48,7 @@ class PlaylabService:
     async def send_message(self, conversation_id: str, message: str) -> str:
         if self.mock_mode:
             return f"Mock response: {message}"
+        import httpx
         url = (
             f"{self.base_url}/projects/{self.project_id}"
             f"/conversations/{conversation_id}/messages"
@@ -71,11 +72,45 @@ class PlaylabService:
             raise RuntimeError(f"Playlab message send failed: {exc}") from exc
 
         content_type = response.headers.get("content-type", "")
+        logger.info("Playlab response content-type: %s", content_type)
+        raw_text = response.text
         if content_type.startswith("application/json"):
             payload = response.json()
             response_text = payload.get("response") or payload.get("message")
+        elif "text/event-stream" in content_type or self._looks_like_sse(raw_text):
+            response_text = self._parse_sse(raw_text)
         else:
-            response_text = response.text.strip()
+            response_text = raw_text.strip()
         if not response_text:
             raise RuntimeError("Playlab response missing message text")
         return response_text
+
+    @staticmethod
+    def _looks_like_sse(text: str) -> bool:
+        """Detect SSE format by checking for event/data line patterns."""
+        return "\nevent:" in text or text.startswith("event:") or "\ndata:" in text
+
+    @staticmethod
+    def _parse_sse(raw: str) -> str:
+        """Extract and concatenate delta values from an SSE stream.
+
+        Playlab returns events like:
+            event: append
+            data: {"delta": "Hello"}
+        We collect all deltas from 'append' events into the final text.
+        """
+        chunks: list[str] = []
+        current_event = ""
+        for line in raw.splitlines():
+            if line.startswith("event:"):
+                current_event = line.split(":", 1)[1].strip()
+            elif line.startswith("data:") and current_event == "append":
+                data_str = line.split(":", 1)[1].strip()
+                try:
+                    data = json.loads(data_str)
+                    delta = data.get("delta", "")
+                    if delta:
+                        chunks.append(delta)
+                except json.JSONDecodeError:
+                    logger.warning("SSE: could not parse data line: %s", data_str)
+        return "".join(chunks)

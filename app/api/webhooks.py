@@ -4,7 +4,7 @@ from urllib.parse import parse_qs
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.core.config import get_settings
-from app.workflows.bridge import handle_inbound_message, handle_twilio_message
+from app.workflows.bridge import handle_twilio_message
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +34,7 @@ async def receive_webhook(request: Request) -> dict[str, str]:
         logger.info("Webhook POST received, content-type: %s", content_type)
 
         if content_type.startswith("application/json"):
-            payload = await request.json()
-            await handle_inbound_message(payload, settings)
+            logger.info("JSON webhook received (not Twilio format, skipping)")
         else:
             try:
                 form = await request.form()

@@ -1,8 +1,6 @@
 import logging
 from dataclasses import dataclass
 
-from anthropic import AsyncAnthropic
-
 logger = logging.getLogger(__name__)
 
 
@@ -18,6 +16,7 @@ class ClaudeService:
         if self.mock_mode:
             return f"Mock Claude response: {message}"
 
+        from anthropic import AsyncAnthropic
         client = AsyncAnthropic(api_key=self.api_key)
         logger.info("Claude send_message: model=%s", self.model)
         try:

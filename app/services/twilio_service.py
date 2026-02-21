@@ -1,6 +1,7 @@
+import logging
 from dataclasses import dataclass
 
-import httpx
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class TwilioService:
         """Send a WhatsApp message via Twilio."""
         if self.mock_mode:
             return None
+        import httpx
         url = (
             f"https://api.twilio.com/2010-04-01/Accounts/"
             f"{self.account_sid}/Messages.json"
@@ -26,9 +28,13 @@ class TwilioService:
             "From": self.whatsapp_number,
             "Body": message,
         }
+        logger.info("Twilio send: To=%s From=%s Body=%s", to, self.whatsapp_number, message[:120])
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(url, data=data, auth=self._auth())
                 response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            logger.error("Twilio API error %s: %s", exc.response.status_code, exc.response.text[:500])
+            raise RuntimeError("Twilio message send failed") from exc
         except httpx.HTTPError as exc:
             raise RuntimeError("Twilio message send failed") from exc

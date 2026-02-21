@@ -1,5 +1,4 @@
 import logging
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from dotenv import load_dotenv
@@ -7,7 +6,6 @@ from pydantic import BaseModel
 
 from app.api.router import router as api_router
 from app.core.config import get_settings
-from app.db.engine import init_engine, dispose_engine
 from app.schemas.inbound import InboundMessage
 from app.services.claude_service import ClaudeService
 from app.services.playlab_service import PlaylabService
@@ -23,27 +21,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Start up and shut down application-wide resources.
-
-    On startup: create the database connection pool.
-    On shutdown: close all database connections.
-    If the database is unreachable, the app still starts (graceful degradation).
-    """
-    settings = get_settings()
-    if not settings.mock_mode and settings.database_url != "mock":
-        try:
-            init_engine(settings.database_url)
-            logger.info("Database engine ready")
-        except Exception:
-            logger.exception("Failed to initialize database engine — proceeding without DB")
-    yield
-    await dispose_engine()
-
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 # Central router keeps HTTP surface area organized.
 app.include_router(api_router)
 

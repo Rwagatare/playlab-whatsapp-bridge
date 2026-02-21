@@ -77,8 +77,8 @@ def get_settings() -> Settings:
             claude_system_prompt=claude_system_prompt,
         )
     return Settings(
-        database_url=_get_env("DATABASE_URL"),
-        redis_url=_get_env("REDIS_URL"),
+        database_url=_get_env_optional("DATABASE_URL", ""),
+        redis_url=_get_env_optional("REDIS_URL", ""),
         salt=_get_env("SALT"),
         mock_mode=False,
         provider=provider,

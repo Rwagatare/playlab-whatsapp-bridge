@@ -1,1 +1,1 @@
-"""External service integrations (Playlab, Turn.io, Redis)."""
+"""External service integrations (Playlab, Twilio, Claude)."""
