@@ -1,6 +1,6 @@
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -196,6 +196,43 @@ async def _safe_llm_response(
         return "Sorry, the AI service is temporarily unavailable. Please try again."
 
 
+async def _handle_reset(sender_id: str, settings: Settings) -> str:
+    """Expire all active conversations for a user so the next message starts fresh."""
+    phone_hash = pseudonymize_user_id(sender_id, settings.salt)
+    expired_count = 0
+
+    async for session in get_session_or_none():
+        if session is not None:
+            try:
+                user_stmt = select(User).where(User.phone_hash == phone_hash)
+                user = (await session.execute(user_stmt)).scalar_one_or_none()
+                if user is not None:
+                    stmt = (
+                        update(Conversation)
+                        .where(
+                            Conversation.user_id == user.id,
+                            Conversation.status == "active",
+                        )
+                        .values(status="expired")
+                    )
+                    result = await session.execute(stmt)
+                    expired_count = result.rowcount
+                    await session.commit()
+                    logger.info(
+                        "Reset: expired %d conversation(s) for user=%s...",
+                        expired_count,
+                        phone_hash[:8],
+                    )
+            except Exception:
+                logger.warning("Reset: DB update failed", exc_info=True)
+        break
+
+    return (
+        "Your conversation history has been cleared. "
+        "Feel free to start a new conversation!"
+    )
+
+
 async def handle_twilio_message(form_data: dict[str, str], settings: Settings) -> None:
     logger.info("Twilio webhook received: %s", list(form_data.keys()))
     inbound = parse_twilio_inbound(form_data)
@@ -204,7 +241,12 @@ async def handle_twilio_message(form_data: dict[str, str], settings: Settings) -
         return
 
     logger.info("Parsed inbound from %s: %s", inbound.sender_id, inbound.text[:50] if inbound.text else "(empty)")
-    response_text = await _safe_llm_response(inbound, settings)
+
+    # Handle /reset command — clear conversation history without hitting the LLM.
+    if inbound.text and inbound.text.strip().lower() == "/reset":
+        response_text = await _handle_reset(inbound.sender_id, settings)
+    else:
+        response_text = await _safe_llm_response(inbound, settings)
     logger.info("Response to send: %s", response_text[:100])
 
     twilio_client = TwilioService(
