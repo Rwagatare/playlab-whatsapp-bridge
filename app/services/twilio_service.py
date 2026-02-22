@@ -34,7 +34,9 @@ class TwilioService:
                 response = await client.post(url, data=data, auth=self._auth())
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            logger.error("Twilio API error %s: %s", exc.response.status_code, exc.response.text[:500])
-            raise RuntimeError("Twilio message send failed") from exc
+            body = exc.response.text if exc.response is not None else ""
+            raise RuntimeError(
+                f"Twilio message send failed: status={exc.response.status_code} body={body[:500]}"
+            ) from exc
         except httpx.HTTPError as exc:
-            raise RuntimeError("Twilio message send failed") from exc
+            raise RuntimeError(f"Twilio message send failed: {exc}") from exc

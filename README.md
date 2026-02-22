@@ -34,7 +34,8 @@ The server receives incoming WhatsApp messages via webhook, forwards them to a c
 
 3. **Start the server:**
    ```bash
-   uvicorn app.main:app --host 0.0.0.0 --port 8000
+   # Use the venv's interpreter to avoid accidentally running a global/pyenv uvicorn
+   python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
    ```
 
 4. **Expose locally with ngrok** (for development):
@@ -64,7 +65,7 @@ PLAYLAB_API_KEY=your-api-key
 PLAYLAB_PROJECT_ID=your-project-id
 PLAYLAB_BASE_URL=https://www.playlab.ai/api/v1
 
-# Twilio
+# Twilio (found at twilio.com/console)
 TWILIO_ACCOUNT_SID=your-account-sid
 TWILIO_AUTH_TOKEN=your-auth-token
 TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
@@ -84,6 +85,14 @@ REDIS_URL=redis://localhost:6379/0
 | `/test-claude` | POST | Test Claude: `{"message": "Hello"}` |
 | `/test-playlab` | POST | Test Playlab: `{"message": "Hello"}` |
 | `/demo/bridge` | POST | Full bridge without Twilio: `{"message": "Hello", "sender_id": "test"}` |
+
+## Reset Conversations
+
+To clear all conversations and start fresh (useful during local development):
+
+```bash
+docker compose exec db psql -U playlab playlab_bridge -c "TRUNCATE messages, conversations RESTART IDENTITY CASCADE;"
+```
 
 ## Running Tests
 

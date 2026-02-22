@@ -16,7 +16,7 @@ from app.db.base import Base
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class User(Base):
@@ -57,6 +57,10 @@ class Conversation(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+    )
+    # Playlab-side conversation ID (allows reusing the same Playlab conversation).
+    external_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, default=None,
     )
     # "active" or "expired" — used for session timeout (#29).
     status: Mapped[str] = mapped_column(
