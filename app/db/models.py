@@ -16,6 +16,9 @@ from app.db.base import Base
 
 
 def _utcnow() -> datetime:
+    # Return naive UTC datetime: our columns use TIMESTAMP WITHOUT TIME ZONE,
+    # which expects tz-unaware values.  If columns ever switch to WITH TIME ZONE,
+    # remove the .replace() call.
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 

@@ -7,7 +7,6 @@ from pydantic import BaseModel
 
 from app.api.router import router as api_router
 from app.core.config import get_settings
-from app.db.engine import init_engine, dispose_engine
 from app.schemas.inbound import InboundMessage
 from app.services.claude_service import ClaudeService
 from app.services.playlab_service import PlaylabService
@@ -26,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.db.engine import init_engine, dispose_engine
+
     settings = get_settings()
     if settings.database_url and settings.database_url != "mock":
         init_engine(settings.database_url)

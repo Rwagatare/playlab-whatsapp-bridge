@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -83,8 +84,8 @@ class PlaylabService:
             response_text = raw.strip()
         if not response_text:
             raise RuntimeError("Playlab response missing message text")
-        # WhatsApp uses single * for bold; replace Markdown ** with *.
-        response_text = response_text.replace("**", "*")
+        # WhatsApp uses single * for bold; convert Markdown **bold** to *bold*.
+        response_text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", response_text)
         return response_text
 
 
@@ -131,7 +132,7 @@ def _extract_text_from_sse(raw: str) -> str:
 
         if current_event == "message":
             source = payload.get("source", "")
-            logger.info("SSE message segment: source=%s id=%s", source, payload.get("id", ""))
+            logger.debug("SSE message segment: source=%s id=%s", source, payload.get("id", ""))
             if source == "provider":
                 # Start a new segment; save any previous deltas.
                 if current_deltas:
@@ -143,7 +144,7 @@ def _extract_text_from_sse(raw: str) -> str:
                 current_deltas.append(delta)
         else:
             # Log non-append/message events (tool_call, tool_result, etc.)
-            logger.info("SSE event=%s data_keys=%s", current_event, list(payload.keys()))
+            logger.debug("SSE event=%s data_keys=%s", current_event, list(payload.keys()))
 
     # Save the final segment.
     if current_deltas:
@@ -152,7 +153,7 @@ def _extract_text_from_sse(raw: str) -> str:
     logger.info("SSE parsed %d message segment(s)", len(segments))
     for i, seg in enumerate(segments):
         text = "".join(seg).strip()
-        logger.info("  segment %d (%d chars): %s", i, len(text), text[:120])
+        logger.debug("  segment %d (%d chars): %s", i, len(text), text[:120])
 
     # Return the last segment (final answer after tool calls).
     if segments:
