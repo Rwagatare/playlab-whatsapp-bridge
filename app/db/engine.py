@@ -35,13 +35,10 @@ def init_engine(database_url: str) -> None:
     if _engine is not None:
         logger.warning("init_engine called more than once; ignoring")
         return
-    _engine = create_async_engine(
-        database_url,
-        echo=False,
-        pool_size=5,
-        max_overflow=10,
-        pool_pre_ping=True,
-    )
+    kwargs: dict = {"echo": False}
+    if not database_url.startswith("sqlite"):
+        kwargs.update(pool_size=5, max_overflow=10, pool_pre_ping=True)
+    _engine = create_async_engine(database_url, **kwargs)
     _session_factory = async_sessionmaker(
         _engine,
         expire_on_commit=False,

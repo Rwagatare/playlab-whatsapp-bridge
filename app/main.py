@@ -27,11 +27,19 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    if settings.database_url:
+    if settings.database_url and settings.database_url != "mock":
         init_engine(settings.database_url)
+        # For SQLite, create tables directly (Alembic targets PostgreSQL).
+        if settings.database_url.startswith("sqlite"):
+            from app.db.engine import _engine
+            from app.db.base import Base
+            import app.db.models  # noqa: F401 — register models with Base
+            async with _engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("SQLite tables created")
         logger.info("Database engine ready")
     else:
-        logger.warning("DATABASE_URL not set; running without persistence")
+        logger.warning("DATABASE_URL not set or mock; running without persistence")
     yield
     await dispose_engine()
 
