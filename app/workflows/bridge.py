@@ -1,11 +1,6 @@
 import logging
 
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.config import Settings
-from app.db.engine import get_session_or_none
-from app.db.models import Conversation, User
 from app.parsers.twilio import parse_inbound as parse_twilio_inbound
 from app.privacy.pseudonymize import pseudonymize_user_id
 from app.services.claude_service import ClaudeService
@@ -16,8 +11,11 @@ from app.schemas.inbound import InboundMessage
 logger = logging.getLogger(__name__)
 
 
-async def _ensure_user(session: AsyncSession, phone_hash: str) -> User:
+async def _ensure_user(session, phone_hash: str):
     """Look up a user by phone_hash, or create one if they don't exist yet."""
+    from sqlalchemy import select
+    from app.db.models import User
+
     stmt = select(User).where(User.phone_hash == phone_hash)
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
@@ -30,21 +28,15 @@ async def _ensure_user(session: AsyncSession, phone_hash: str) -> User:
     return user
 
 
-async def _lookup_conversation_in_db(
-    session: AsyncSession,
-    pseudonymous_user_id: str,
-) -> str | None:
-    """Find the most recent active Playlab conversation for this user in DB."""
-    user_stmt = select(User).where(User.phone_hash == pseudonymous_user_id)
-    user_result = await session.execute(user_stmt)
-    user = user_result.scalar_one_or_none()
-    if user is None:
-        return None
+async def _lookup_conversation_for_user(session, user_id: int) -> str | None:
+    """Find the most recent active Playlab conversation for a user by user_id."""
+    from sqlalchemy import select
+    from app.db.models import Conversation
 
     conv_stmt = (
         select(Conversation)
         .where(
-            Conversation.user_id == user.id,
+            Conversation.user_id == user_id,
             Conversation.status == "active",
             Conversation.external_id.isnot(None),
         )
@@ -56,6 +48,22 @@ async def _lookup_conversation_in_db(
     if conv and conv.external_id:
         return conv.external_id
     return None
+
+
+async def _expire_conversation_by_external_id(session, external_id: str) -> None:
+    """Mark a conversation as expired by its Playlab external_id."""
+    from sqlalchemy import update
+    from app.db.models import Conversation
+
+    stmt = (
+        update(Conversation)
+        .where(
+            Conversation.external_id == external_id,
+            Conversation.status == "active",
+        )
+        .values(status="expired")
+    )
+    await session.execute(stmt)
 
 
 async def process_inbound_message(
@@ -72,6 +80,10 @@ async def process_inbound_message(
 
     if settings.llm_provider == "claude":
         # Persist user if database is available (graceful degradation).
+        # get_session_or_none() is an async generator; we iterate once then
+        # break to get either a session or None without holding it open.
+        from app.db.engine import get_session_or_none
+
         async for session in get_session_or_none():
             if session is not None:
                 try:
@@ -82,35 +94,46 @@ async def process_inbound_message(
         return await _call_claude(message_text, settings)
 
     # --- Playlab path: look up or create a conversation ---
+    from app.db.engine import get_session_or_none
 
-    # 1. Look up existing conversation in DB.
+    # Phase 1: DB lookup — ensure user exists and find active conversation.
     existing_conv_id: str | None = None
+    user_id: int | None = None
     async for session in get_session_or_none():
         if session is not None:
             try:
-                await _ensure_user(session, pseudonymous_user_id)
-                existing_conv_id = await _lookup_conversation_in_db(
-                    session, pseudonymous_user_id,
-                )
+                user = await _ensure_user(session, pseudonymous_user_id)
+                user_id = user.id
+                existing_conv_id = await _lookup_conversation_for_user(session, user_id)
             except Exception:
                 logger.warning("DB lookup failed", exc_info=True)
         break
 
-    # 2. Call Playlab (reuse existing conversation or create new one).
+    # Phase 2: Call Playlab (reuse existing conversation or create new one).
     reply, used_conv_id, is_new = await _call_playlab(
         message=message_text,
         settings=settings,
         conversation_id=existing_conv_id,
     )
 
-    # 3. If a new conversation was created, persist to DB.
+    # Phase 3: Persist new conversation / expire stale one.
     if is_new and used_conv_id:
         async for session in get_session_or_none():
             if session is not None:
                 try:
-                    user = await _ensure_user(session, pseudonymous_user_id)
+                    from app.db.models import Conversation
+
+                    # If we had an old conversation that was replaced, expire it.
+                    if existing_conv_id:
+                        await _expire_conversation_by_external_id(session, existing_conv_id)
+
+                    # Re-fetch user_id if the first session failed.
+                    if user_id is None:
+                        user = await _ensure_user(session, pseudonymous_user_id)
+                        user_id = user.id
+
                     conv = Conversation(
-                        user_id=user.id,
+                        user_id=user_id,
                         external_id=used_conv_id,
                         status="active",
                     )
@@ -198,6 +221,10 @@ async def _safe_llm_response(
 
 async def _handle_reset(sender_id: str, settings: Settings) -> str:
     """Expire all active conversations for a user so the next message starts fresh."""
+    from sqlalchemy import select, update
+    from app.db.engine import get_session_or_none
+    from app.db.models import Conversation, User
+
     phone_hash = pseudonymize_user_id(sender_id, settings.salt)
     expired_count = 0
 
