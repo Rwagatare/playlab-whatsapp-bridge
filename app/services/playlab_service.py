@@ -73,44 +73,88 @@ class PlaylabService:
 
         content_type = response.headers.get("content-type", "")
         logger.info("Playlab response content-type: %s", content_type)
-        raw_text = response.text
+        raw = response.text
         if content_type.startswith("application/json"):
             payload = response.json()
             response_text = payload.get("response") or payload.get("message")
-        elif "text/event-stream" in content_type or self._looks_like_sse(raw_text):
-            response_text = self._parse_sse(raw_text)
+        elif "text/event-stream" in content_type or _looks_like_sse(raw):
+            response_text = _extract_text_from_sse(raw)
         else:
-            response_text = raw_text.strip()
+            response_text = raw.strip()
         if not response_text:
             raise RuntimeError("Playlab response missing message text")
+        # WhatsApp uses single * for bold; replace Markdown ** with *.
+        response_text = response_text.replace("**", "*")
         return response_text
 
-    @staticmethod
-    def _looks_like_sse(text: str) -> bool:
-        """Detect SSE format by checking for event/data line patterns."""
-        return "\nevent:" in text or text.startswith("event:") or "\ndata:" in text
 
-    @staticmethod
-    def _parse_sse(raw: str) -> str:
-        """Extract and concatenate delta values from an SSE stream.
+def _looks_like_sse(raw: str) -> bool:
+    """Heuristic: detect SSE content even when Content-Type header doesn't say so."""
+    return "\nevent:" in raw or raw.startswith("event:") or "\ndata:" in raw
 
-        Playlab returns events like:
-            event: append
-            data: {"delta": "Hello"}
-        We collect all deltas from 'append' events into the final text.
-        """
-        chunks: list[str] = []
-        current_event = ""
-        for line in raw.splitlines():
-            if line.startswith("event:"):
-                current_event = line.split(":", 1)[1].strip()
-            elif line.startswith("data:") and current_event == "append":
-                data_str = line.split(":", 1)[1].strip()
-                try:
-                    data = json.loads(data_str)
-                    delta = data.get("delta", "")
-                    if delta:
-                        chunks.append(delta)
-                except json.JSONDecodeError:
-                    logger.warning("SSE: could not parse data line: %s", data_str)
-        return "".join(chunks)
+
+def _extract_text_from_sse(raw: str) -> str:
+    """Extract the final assistant message from Playlab SSE responses.
+
+    Playlab streams a sequence of events. A typical multi-turn flow:
+      1. event: message  (provider starts first message)
+      2. event: append   (deltas for first message)
+      3. event: tool_call / tool_result  (tool usage)
+      4. event: message  (provider starts second message)
+      5. event: append   (deltas for second message)
+
+    We split on ``message`` events to isolate segments, then return only
+    the text from the **last** segment (the final answer after all tool calls).
+    """
+    current_event: str | None = None
+    # Each "message" event from the provider starts a new segment.
+    # We collect deltas per segment and return only the last one.
+    segments: list[list[str]] = []
+    current_deltas: list[str] = []
+
+    for line in raw.splitlines():
+        if not line.strip():
+            current_event = None
+            continue
+        if line.startswith("event:"):
+            current_event = line[len("event:") :].strip()
+            logger.debug("SSE event: %s", current_event)
+            continue
+        if not line.startswith("data:"):
+            continue
+
+        data_str = line[len("data:") :].strip()
+        try:
+            payload = json.loads(data_str)
+        except json.JSONDecodeError:
+            continue
+
+        if current_event == "message":
+            source = payload.get("source", "")
+            logger.info("SSE message segment: source=%s id=%s", source, payload.get("id", ""))
+            if source == "provider":
+                # Start a new segment; save any previous deltas.
+                if current_deltas:
+                    segments.append(current_deltas)
+                current_deltas = []
+        elif current_event == "append":
+            delta = payload.get("delta", "")
+            if delta:
+                current_deltas.append(delta)
+        else:
+            # Log non-append/message events (tool_call, tool_result, etc.)
+            logger.info("SSE event=%s data_keys=%s", current_event, list(payload.keys()))
+
+    # Save the final segment.
+    if current_deltas:
+        segments.append(current_deltas)
+
+    logger.info("SSE parsed %d message segment(s)", len(segments))
+    for i, seg in enumerate(segments):
+        text = "".join(seg).strip()
+        logger.info("  segment %d (%d chars): %s", i, len(text), text[:120])
+
+    # Return the last segment (final answer after tool calls).
+    if segments:
+        return "".join(segments[-1]).strip()
+    return raw.strip()

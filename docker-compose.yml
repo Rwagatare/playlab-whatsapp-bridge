@@ -17,7 +17,7 @@ services:
       POSTGRES_USER: playlab
       POSTGRES_PASSWORD: playlab
     ports:
-      - "5432:5432"
+      - "5450:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
   redis:
