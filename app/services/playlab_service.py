@@ -5,6 +5,10 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+# Only allow Playlab API requests to go to these domains.
+_ALLOWED_HOSTS = {"www.playlab.ai", "playlab.ai", "api.playlab.ai"}
+_SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
 
 @dataclass(frozen=True)
 class PlaylabService:
@@ -12,6 +16,18 @@ class PlaylabService:
     project_id: str
     base_url: str
     mock_mode: bool = False
+
+    def __post_init__(self) -> None:
+        """Validate that base_url and project_id are safe (prevents SSRF)."""
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self.base_url)
+        if parsed.scheme != "https":
+            raise ValueError(f"base_url must use HTTPS, got: {parsed.scheme}")
+        if parsed.hostname not in _ALLOWED_HOSTS:
+            raise ValueError(f"base_url host not allowed: {parsed.hostname}")
+        if not _SAFE_ID_RE.match(self.project_id):
+            raise ValueError(f"project_id contains invalid characters: {self.project_id}")
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.api_key}"}
@@ -49,6 +65,8 @@ class PlaylabService:
     async def send_message(self, conversation_id: str, message: str) -> str:
         if self.mock_mode:
             return f"Mock response: {message}"
+        if not _SAFE_ID_RE.match(conversation_id):
+            raise ValueError(f"conversation_id contains invalid characters: {conversation_id}")
         import httpx
         url = (
             f"{self.base_url}/projects/{self.project_id}"

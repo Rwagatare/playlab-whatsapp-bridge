@@ -28,7 +28,7 @@ class TwilioService:
             "From": self.whatsapp_number,
             "Body": message,
         }
-        logger.info("Twilio send: To=%s From=%s Body=%s", to, self.whatsapp_number, message[:120])
+        logger.info("Twilio send: dispatching message")
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(url, data=data, auth=self._auth())

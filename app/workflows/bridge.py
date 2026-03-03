@@ -260,21 +260,24 @@ async def _handle_reset(sender_id: str, settings: Settings) -> str:
     )
 
 
+async def _process_and_reply(inbound: InboundMessage, settings: Settings) -> str:
+    """Shared logic: handle /reset or get LLM response."""
+    if inbound.text and inbound.text.strip().lower() == "/reset":
+        return await _handle_reset(inbound.sender_id, settings)
+    return await _safe_llm_response(inbound, settings)
+
+
 async def handle_twilio_message(form_data: dict[str, str], settings: Settings) -> None:
-    logger.info("Twilio webhook received: %s", list(form_data.keys()))
+    logger.info("Twilio webhook received")
     inbound = parse_twilio_inbound(form_data)
     if not inbound:
         logger.warning("Could not parse Twilio inbound (missing From?)")
         return
 
-    logger.info("Parsed inbound from %s: %s", inbound.sender_id, inbound.text[:50] if inbound.text else "(empty)")
-
-    # Handle /reset command — clear conversation history without hitting the LLM.
-    if inbound.text and inbound.text.strip().lower() == "/reset":
-        response_text = await _handle_reset(inbound.sender_id, settings)
-    else:
-        response_text = await _safe_llm_response(inbound, settings)
-    logger.info("Response to send: %s", response_text[:100])
+    phone_hash = pseudonymize_user_id(inbound.sender_id, settings.salt)[:8]
+    logger.info("Parsed inbound from user=%s...", phone_hash)
+    response_text = await _process_and_reply(inbound, settings)
+    logger.info("Response ready for user=%s...", phone_hash)
 
     twilio_client = TwilioService(
         account_sid=settings.twilio_account_sid,
@@ -284,6 +287,34 @@ async def handle_twilio_message(form_data: dict[str, str], settings: Settings) -
     )
     try:
         await twilio_client.send_text(to=inbound.sender_id, message=response_text)
-        logger.info("Twilio send succeeded to %s", inbound.sender_id)
+        logger.info("Twilio send succeeded for user=%s...", phone_hash)
     except Exception as exc:
-        logger.exception("Twilio send failed: %s", exc)
+        logger.exception("Twilio send failed for user=%s...: %s", phone_hash, exc)
+
+
+async def handle_meta_message(json_data: dict, settings: Settings) -> None:
+    """Handle an inbound WhatsApp message from Meta Cloud API."""
+    from app.parsers.meta import parse_inbound as parse_meta_inbound
+    from app.services.meta_service import MetaService
+
+    logger.info("Meta webhook received")
+    inbound = parse_meta_inbound(json_data)
+    if not inbound:
+        logger.info("Meta webhook had no inbound message (likely a status update)")
+        return
+
+    phone_hash = pseudonymize_user_id(inbound.sender_id, settings.salt)[:8]
+    logger.info("Parsed inbound from user=%s...", phone_hash)
+    response_text = await _process_and_reply(inbound, settings)
+    logger.info("Response ready for user=%s...", phone_hash)
+
+    meta_client = MetaService(
+        access_token=settings.meta_access_token,
+        phone_number_id=settings.meta_phone_number_id,
+        mock_mode=settings.mock_mode,
+    )
+    try:
+        await meta_client.send_text(to=inbound.sender_id, message=response_text)
+        logger.info("Meta send succeeded for user=%s...", phone_hash)
+    except Exception as exc:
+        logger.exception("Meta send failed for user=%s...: %s", phone_hash, exc)
