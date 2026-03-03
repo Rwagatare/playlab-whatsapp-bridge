@@ -1,22 +1,27 @@
 # playlab-whatsapp-bridge
 
-A WhatsApp bridge that connects AI agents with students via messaging, enabling educators to deploy custom AI assistants directly to mobile devices in low-bandwidth regions.
+A WhatsApp bridge that connects students in low-connectivity regions to AI tutoring bots powered by Playlab, so they can learn through a messaging app they already have.
 
 ## How It Works
 
 ```
-WhatsApp --> Twilio --> FastAPI (/webhook) --> LLM Provider --> Twilio --> WhatsApp
+WhatsApp --> Meta Cloud API / Twilio --> FastAPI (/webhook) --> Playlab --> Meta / Twilio --> WhatsApp
 ```
 
-The server receives incoming WhatsApp messages via webhook, forwards them to a configurable LLM provider, and sends the AI response back to the user.
+The server receives incoming WhatsApp messages via webhook, forwards them to a configurable LLM provider (Playlab or Claude), and sends the AI response back to the user. Two WhatsApp providers are supported:
+
+- **Meta Cloud API** — production provider (direct WhatsApp Business Platform integration)
+- **Twilio** — development/demo provider (free sandbox for testing)
 
 ## Quick Start
 
 ### Prerequisites
 - Python 3.10+
-- A [Twilio](https://www.twilio.com) account (free sandbox available for WhatsApp development and testing)
-- An API key for your chosen LLM provider
-- [ngrok](https://ngrok.com) (for local development only)
+- An API key for your chosen LLM provider ([Playlab](https://playlab.ai) or [Anthropic](https://anthropic.com))
+- [ngrok](https://ngrok.com) (for local development)
+- One of:
+  - A [Meta Business account](https://business.facebook.com) with WhatsApp Cloud API access
+  - A [Twilio](https://www.twilio.com) account (free sandbox available)
 
 ### Setup
 
@@ -26,7 +31,7 @@ The server receives incoming WhatsApp messages via webhook, forwards them to a c
    cd playlab-whatsapp-bridge
    python -m venv .venv
    source .venv/bin/activate
-   pip install -e .
+   pip install -e ".[test]"
    ```
 
 2. **Configure environment:**
@@ -34,7 +39,6 @@ The server receives incoming WhatsApp messages via webhook, forwards them to a c
 
 3. **Start the server:**
    ```bash
-   # Use the venv's interpreter to avoid accidentally running a global/pyenv uvicorn
    python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
    ```
 
@@ -43,66 +47,84 @@ The server receives incoming WhatsApp messages via webhook, forwards them to a c
    ngrok http 8000
    ```
 
-5. **Configure Twilio webhook:**
+5. **Configure your webhook:**
+
+   **For Meta Cloud API** (`WHATSAPP_PROVIDER=meta`):
+   - In the [Meta App Dashboard](https://developers.facebook.com/apps), go to WhatsApp > Configuration
+   - Set the webhook URL to: `https://<your-ngrok-id>.ngrok-free.dev/webhook`
+   - Set the verify token to match your `META_VERIFY_TOKEN`
+   - Subscribe to the `messages` field
+
+   **For Twilio** (`WHATSAPP_PROVIDER=twilio`):
    - In the Twilio Console, set your WhatsApp sandbox webhook URL to:
      `https://<your-ngrok-id>.ngrok-free.dev/webhook` (POST)
 
-6. **Test:** Send a WhatsApp message to your Twilio sandbox number.
+6. **Test:** Send a WhatsApp message to your configured number.
 
 ## Environment Variables
 
 ```bash
-# LLM Provider: the AI backend to use (e.g. "claude", "playlab")
-LLM_PROVIDER=claude
+# WhatsApp provider: "meta" (production) or "twilio" (dev/demo)
+WHATSAPP_PROVIDER=twilio
 
-# Anthropic (Claude) - required if LLM_PROVIDER=claude
-ANTHROPIC_API_KEY=your-api-key
-CLAUDE_MODEL=claude-sonnet-4-5-20250929
-CLAUDE_SYSTEM_PROMPT=You are a helpful assistant on WhatsApp. Keep responses concise and friendly.
+# Meta Cloud API (required if WHATSAPP_PROVIDER=meta)
+META_PHONE_NUMBER_ID=your-phone-number-id
+META_ACCESS_TOKEN=your-access-token
+META_APP_SECRET=your-app-secret
+META_VERIFY_TOKEN=your-verify-token
 
-# Playlab - required if LLM_PROVIDER=playlab
-PLAYLAB_API_KEY=your-api-key
-PLAYLAB_PROJECT_ID=your-project-id
-PLAYLAB_BASE_URL=https://www.playlab.ai/api/v1
-
-# Twilio (found at twilio.com/console)
+# Twilio (required if WHATSAPP_PROVIDER=twilio)
 TWILIO_ACCOUNT_SID=your-account-sid
 TWILIO_AUTH_TOKEN=your-auth-token
 TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
 
+# LLM Provider: "playlab" (default) or "claude"
+LLM_PROVIDER=playlab
+
+# Playlab (required if LLM_PROVIDER=playlab)
+PLAYLAB_API_KEY=your-api-key
+PLAYLAB_PROJECT_ID=your-project-id
+PLAYLAB_BASE_URL=https://www.playlab.ai/api/v1
+
+# Anthropic Claude (required if LLM_PROVIDER=claude)
+ANTHROPIC_API_KEY=your-api-key
+CLAUDE_MODEL=claude-sonnet-4-5-20250929
+CLAUDE_SYSTEM_PROMPT=You are a helpful assistant on WhatsApp. Keep responses concise and friendly.
+
 # App
 MOCK_MODE=0
 SALT=your-random-salt
-DATABASE_URL=postgresql+asyncpg://playlab:playlab@localhost:5432/playlab_bridge
-REDIS_URL=redis://localhost:6379/0
+DATABASE_URL=sqlite+aiosqlite:///./playlab_bridge.db
 ```
+
+## User Commands
+
+| Command | Description |
+|---------|-------------|
+| `/reset` | Clear conversation history and start fresh |
 
 ## Test Endpoints
 
+These endpoints are only available when `MOCK_MODE=1` (disabled in production):
+
 | Endpoint | Method | Description |
 |---|---|---|
-| `/health` | GET | Health check |
+| `/health` | GET | Health check (always available) |
 | `/test-claude` | POST | Test Claude: `{"message": "Hello"}` |
 | `/test-playlab` | POST | Test Playlab: `{"message": "Hello"}` |
-| `/demo/bridge` | POST | Full bridge without Twilio: `{"message": "Hello", "sender_id": "test"}` |
-
-## Reset Conversations
-
-To clear all conversations and start fresh (useful during local development):
-
-```bash
-docker compose exec db psql -U playlab playlab_bridge -c "TRUNCATE messages, conversations RESTART IDENTITY CASCADE;"
-```
+| `/demo/bridge` | POST | Full bridge without WhatsApp: `{"message": "Hello", "sender_id": "test"}` |
 
 ## Running Tests
 
 ```bash
+pip install -e ".[test]"
 pytest tests/ -v
 ```
 
 ## Docker
 
 ```bash
+# Set POSTGRES_PASSWORD in your .env first
 docker-compose up --build
 ```
 
@@ -110,6 +132,7 @@ docker-compose up --build
 
 - **Never** commit `.env` or any real keys
 - `.env` is already in `.gitignore`
+- Use a cryptographically random salt (not `dev-salt`): `python -c "import secrets; print(secrets.token_hex(32))"`
 - Install pre-commit hooks to scan for secrets:
   ```bash
   pip install pre-commit

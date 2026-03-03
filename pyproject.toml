@@ -22,6 +22,10 @@ dependencies = [
   "python-dotenv",
   "python-multipart",
   "anthropic",
+]
+
+[project.optional-dependencies]
+test = [
   "pytest",
   "pytest-asyncio",
   "aiosqlite",

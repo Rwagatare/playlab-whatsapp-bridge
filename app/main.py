@@ -1,9 +1,10 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.router import router as api_router
 from app.core.config import get_settings
@@ -50,19 +51,38 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(api_router)
 
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch unhandled exceptions so stack traces are never leaked to clients."""
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
+
+
 @app.get("/")
 async def root() -> dict[str, str]:
     # Simple readiness response for local dev and basic uptime checks.
     return {"status": "ok"}
 
 
+def _require_mock_mode() -> None:
+    """Guard that rejects requests when MOCK_MODE is off (i.e. production)."""
+    settings = get_settings()
+    if not settings.mock_mode:
+        raise HTTPException(
+            status_code=404, detail="Not found"
+        )
+
+
 class TestPlaylabRequest(BaseModel):
-    message: str
+    message: str = Field(..., max_length=10000)
 
 
 @app.post("/test-playlab")
 async def test_playlab(payload: TestPlaylabRequest) -> dict[str, str]:
-    # Lightweight endpoint to validate Playlab connectivity.
+    _require_mock_mode()
     settings = get_settings()
     service = PlaylabService(
         api_key=settings.playlab_api_key,
@@ -77,7 +97,7 @@ async def test_playlab(payload: TestPlaylabRequest) -> dict[str, str]:
 
 @app.post("/test-claude")
 async def test_claude(payload: TestPlaylabRequest) -> dict[str, str]:
-    # Lightweight endpoint to validate Claude connectivity.
+    _require_mock_mode()
     settings = get_settings()
     service = ClaudeService(
         api_key=settings.anthropic_api_key,
@@ -90,13 +110,13 @@ async def test_claude(payload: TestPlaylabRequest) -> dict[str, str]:
 
 
 class DemoBridgeRequest(BaseModel):
-    message: str
+    message: str = Field(..., max_length=10000)
     sender_id: str = "demo-user"
 
 
 @app.post("/demo/bridge")
 async def demo_bridge(payload: DemoBridgeRequest) -> dict[str, str]:
-    # Demo endpoint that runs the full bridge flow without external sends.
+    _require_mock_mode()
     settings = get_settings()
     inbound = InboundMessage(
         sender_id=payload.sender_id,
