@@ -19,10 +19,8 @@ class TwilioService:
         if self.mock_mode:
             return None
         import httpx
-        url = (
-            f"https://api.twilio.com/2010-04-01/Accounts/"
-            f"{self.account_sid}/Messages.json"
-        )
+
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{self.account_sid}/Messages.json"
         data = {
             "To": to,
             "From": self.whatsapp_number,

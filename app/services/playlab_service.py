@@ -19,6 +19,8 @@ class PlaylabService:
 
     def __post_init__(self) -> None:
         """Validate that base_url and project_id are safe (prevents SSRF)."""
+        if self.mock_mode:
+            return
         from urllib.parse import urlparse
 
         parsed = urlparse(self.base_url)
@@ -36,6 +38,7 @@ class PlaylabService:
         if self.mock_mode:
             return "mock-conversation"
         import httpx
+
         url = f"{self.base_url}/projects/{self.project_id}/conversations"
         logger.info("Playlab create_conversation: POST %s", url)
         try:
@@ -53,9 +56,7 @@ class PlaylabService:
                 response.raise_for_status()
                 payload = response.json()
         except httpx.HTTPError as exc:
-            raise RuntimeError(
-                f"Playlab conversation creation failed: {exc}"
-            ) from exc
+            raise RuntimeError(f"Playlab conversation creation failed: {exc}") from exc
 
         conversation_id = payload.get("conversation", {}).get("id")
         if not conversation_id:
@@ -68,10 +69,8 @@ class PlaylabService:
         if not _SAFE_ID_RE.match(conversation_id):
             raise ValueError(f"conversation_id contains invalid characters: {conversation_id}")
         import httpx
-        url = (
-            f"{self.base_url}/projects/{self.project_id}"
-            f"/conversations/{conversation_id}/messages"
-        )
+
+        url = f"{self.base_url}/projects/{self.project_id}/conversations/{conversation_id}/messages"
         body = {"input": {"message": message}}
         logger.info("Playlab send_message: POST %s", url)
         try:

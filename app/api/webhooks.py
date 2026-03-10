@@ -64,8 +64,7 @@ async def receive_webhook(request: Request) -> dict[str, str]:
             except Exception:
                 raw_body = (await request.body()).decode("utf-8", errors="replace")
                 form_data = {
-                    key: values[0] if values else ""
-                    for key, values in parse_qs(raw_body).items()
+                    key: values[0] if values else "" for key, values in parse_qs(raw_body).items()
                 }
             _verify_twilio_signature(request, form_data, settings.twilio_auth_token)
             await handle_twilio_message(form_data, settings)
@@ -78,9 +77,7 @@ async def receive_webhook(request: Request) -> dict[str, str]:
         raise
 
 
-def _verify_meta_signature(
-    request: Request, body: bytes, app_secret: str
-) -> None:
+def _verify_meta_signature(request: Request, body: bytes, app_secret: str) -> None:
     """Verify the X-Hub-Signature-256 header from Meta.
 
     Meta signs every webhook POST with HMAC-SHA256 using the App Secret.
@@ -88,29 +85,28 @@ def _verify_meta_signature(
     """
     if not app_secret:
         logger.error("META_APP_SECRET not configured — cannot verify webhook")
-        raise HTTPException(
-            status_code=500, detail="Server misconfiguration"
-        )
+        raise HTTPException(status_code=500, detail="Server misconfiguration")
 
     signature_header = request.headers.get("x-hub-signature-256", "")
     if not signature_header:
         logger.warning("Missing X-Hub-Signature-256 header")
         raise HTTPException(status_code=403, detail="Missing signature")
 
-    expected = "sha256=" + hmac.new(
-        app_secret.encode(),
-        body,
-        hashlib.sha256,
-    ).hexdigest()
+    expected = (
+        "sha256="
+        + hmac.new(
+            app_secret.encode(),
+            body,
+            hashlib.sha256,
+        ).hexdigest()
+    )
 
     if not hmac.compare_digest(expected, signature_header):
         logger.warning("Meta webhook signature mismatch")
         raise HTTPException(status_code=403, detail="Invalid signature")
 
 
-def _verify_twilio_signature(
-    request: Request, form_data: dict[str, str], auth_token: str
-) -> None:
+def _verify_twilio_signature(request: Request, form_data: dict[str, str], auth_token: str) -> None:
     """Verify the X-Twilio-Signature header.
 
     Twilio signs every webhook POST with HMAC-SHA1 using the Auth Token.
@@ -119,9 +115,7 @@ def _verify_twilio_signature(
     """
     if not auth_token or auth_token == "unused":
         logger.error("TWILIO_AUTH_TOKEN not configured — cannot verify webhook")
-        raise HTTPException(
-            status_code=500, detail="Server misconfiguration"
-        )
+        raise HTTPException(status_code=500, detail="Server misconfiguration")
 
     signature = request.headers.get("x-twilio-signature", "")
     if not signature:
@@ -130,9 +124,7 @@ def _verify_twilio_signature(
 
     # Twilio's algorithm: URL + sorted key-value pairs, then HMAC-SHA1 + base64.
     url = str(request.url)
-    data_str = url + "".join(
-        f"{k}{v}" for k, v in sorted(form_data.items())
-    )
+    data_str = url + "".join(f"{k}{v}" for k, v in sorted(form_data.items()))
     expected = base64.b64encode(
         hmac.new(auth_token.encode(), data_str.encode("utf-8"), hashlib.sha1).digest()
     ).decode()

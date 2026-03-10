@@ -1,9 +1,9 @@
 import logging
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from app.api.router import router as api_router
@@ -26,16 +26,17 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from app.db.engine import init_engine, dispose_engine
+    from app.db.engine import dispose_engine, init_engine
 
     settings = get_settings()
     if settings.database_url and settings.database_url != "mock":
         init_engine(settings.database_url)
         # For SQLite, create tables directly (Alembic targets PostgreSQL).
         if settings.database_url.startswith("sqlite"):
-            from app.db.engine import _engine
-            from app.db.base import Base
             import app.db.models  # noqa: F401 — register models with Base
+            from app.db.base import Base
+            from app.db.engine import _engine
+
             async with _engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
             logger.info("SQLite tables created")
@@ -71,9 +72,7 @@ def _require_mock_mode() -> None:
     """Guard that rejects requests when MOCK_MODE is off (i.e. production)."""
     settings = get_settings()
     if not settings.mock_mode:
-        raise HTTPException(
-            status_code=404, detail="Not found"
-        )
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 class TestPlaylabRequest(BaseModel):

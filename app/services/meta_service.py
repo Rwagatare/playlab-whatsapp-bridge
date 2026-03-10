@@ -33,10 +33,7 @@ class MetaService:
             return None
         import httpx
 
-        url = (
-            f"https://graph.facebook.com/{META_API_VERSION}"
-            f"/{self.phone_number_id}/messages"
-        )
+        url = f"https://graph.facebook.com/{META_API_VERSION}/{self.phone_number_id}/messages"
         body = {
             "messaging_product": "whatsapp",
             "recipient_type": "individual",
@@ -57,7 +54,8 @@ class MetaService:
         except httpx.HTTPStatusError as exc:
             resp_body = exc.response.text if exc.response is not None else ""
             raise RuntimeError(
-                f"Meta message send failed: status={exc.response.status_code} body={resp_body[:500]}"
+                f"Meta message send failed: status={exc.response.status_code}"
+                f" body={resp_body[:500]}"
             ) from exc
         except httpx.HTTPError as exc:
             raise RuntimeError(f"Meta message send failed: {exc}") from exc

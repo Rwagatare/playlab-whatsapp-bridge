@@ -17,8 +17,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.db.base import Base
 import app.db.models  # noqa: F401 — registers models on Base.metadata
+from app.db.base import Base
 
 
 @pytest.fixture(scope="session")

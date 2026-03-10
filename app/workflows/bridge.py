@@ -3,10 +3,10 @@ import logging
 from app.core.config import Settings
 from app.parsers.twilio import parse_inbound as parse_twilio_inbound
 from app.privacy.pseudonymize import pseudonymize_user_id
+from app.schemas.inbound import InboundMessage
 from app.services.claude_service import ClaudeService
 from app.services.playlab_service import PlaylabService
 from app.services.twilio_service import TwilioService
-from app.schemas.inbound import InboundMessage
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 async def _ensure_user(session, phone_hash: str):
     """Look up a user by phone_hash, or create one if they don't exist yet."""
     from sqlalchemy import select
+
     from app.db.models import User
 
     stmt = select(User).where(User.phone_hash == phone_hash)
@@ -31,6 +32,7 @@ async def _ensure_user(session, phone_hash: str):
 async def _lookup_conversation_for_user(session, user_id: int) -> str | None:
     """Find the most recent active Playlab conversation for a user by user_id."""
     from sqlalchemy import select
+
     from app.db.models import Conversation
 
     conv_stmt = (
@@ -53,6 +55,7 @@ async def _lookup_conversation_for_user(session, user_id: int) -> str | None:
 async def _expire_conversation_by_external_id(session, external_id: str) -> None:
     """Mark a conversation as expired by its Playlab external_id."""
     from sqlalchemy import update
+
     from app.db.models import Conversation
 
     stmt = (
@@ -222,6 +225,7 @@ async def _safe_llm_response(
 async def _handle_reset(sender_id: str, settings: Settings) -> str:
     """Expire all active conversations for a user so the next message starts fresh."""
     from sqlalchemy import select, update
+
     from app.db.engine import get_session_or_none
     from app.db.models import Conversation, User
 
@@ -254,10 +258,7 @@ async def _handle_reset(sender_id: str, settings: Settings) -> str:
                 logger.warning("Reset: DB update failed", exc_info=True)
         break
 
-    return (
-        "Your conversation history has been cleared. "
-        "Feel free to start a new conversation!"
-    )
+    return "Your conversation history has been cleared. Feel free to start a new conversation!"
 
 
 async def _process_and_reply(inbound: InboundMessage, settings: Settings) -> str:

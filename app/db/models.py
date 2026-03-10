@@ -33,7 +33,10 @@ class User(Base):
     )
     # SHA-256 hex digest of the phone number (64 chars). Never store raw numbers.
     phone_hash: Mapped[str] = mapped_column(
-        String(64), unique=True, nullable=False, index=True,
+        String(64),
+        unique=True,
+        nullable=False,
+        index=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         nullable=False,
@@ -63,11 +66,16 @@ class Conversation(Base):
     )
     # Playlab-side conversation ID (allows reusing the same Playlab conversation).
     external_id: Mapped[str | None] = mapped_column(
-        String(255), nullable=True, default=None,
+        String(255),
+        nullable=True,
+        default=None,
     )
     # "active" or "expired" — used for session timeout (#29).
     status: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="active", server_default=text("'active'"),
+        String(16),
+        nullable=False,
+        default="active",
+        server_default=text("'active'"),
     )
     created_at: Mapped[datetime] = mapped_column(
         nullable=False,
@@ -91,9 +99,7 @@ class Conversation(Base):
     )
 
     # Composite index: "find the active conversation for this user" — the main query.
-    __table_args__ = (
-        Index("ix_conversations_user_status", "user_id", "status"),
-    )
+    __table_args__ = (Index("ix_conversations_user_status", "user_id", "status"),)
 
 
 class Message(Base):
@@ -111,10 +117,12 @@ class Message(Base):
     )
     # "user" or "assistant" — matches Claude API convention.
     role: Mapped[str] = mapped_column(
-        String(16), nullable=False,
+        String(16),
+        nullable=False,
     )
     content: Mapped[str] = mapped_column(
-        Text, nullable=False,
+        Text,
+        nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
         nullable=False,
@@ -125,6 +133,4 @@ class Message(Base):
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
 
     # Index: "get messages for a conversation in order" — the multi-turn memory query.
-    __table_args__ = (
-        Index("ix_messages_conversation_created", "conversation_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_messages_conversation_created", "conversation_id", "created_at"),)
