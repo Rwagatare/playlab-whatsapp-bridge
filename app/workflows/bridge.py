@@ -1,5 +1,7 @@
 import logging
 
+from app.commands.parser import CommandType, parse_command
+from app.core.bot_registry import BotConfig, get_bot_by_slug, get_default_bot
 from app.core.config import Settings
 from app.parsers.twilio import parse_inbound as parse_twilio_inbound
 from app.privacy.pseudonymize import pseudonymize_user_id
@@ -9,6 +11,9 @@ from app.services.playlab_service import PlaylabService
 from app.services.twilio_service import TwilioService
 
 logger = logging.getLogger(__name__)
+
+# In-memory fallback for active bot per user when DB is unavailable.
+_active_bots_fallback: dict[str, str] = {}
 
 
 async def _ensure_user(session, phone_hash: str):
@@ -29,19 +34,25 @@ async def _ensure_user(session, phone_hash: str):
     return user
 
 
-async def _lookup_conversation_for_user(session, user_id: int) -> str | None:
+async def _lookup_conversation_for_user(
+    session, user_id: int, bot_key: str | None = None
+) -> str | None:
     """Find the most recent active Playlab conversation for a user by user_id."""
     from sqlalchemy import select
 
     from app.db.models import Conversation
 
+    conditions = [
+        Conversation.user_id == user_id,
+        Conversation.status == "active",
+        Conversation.external_id.isnot(None),
+    ]
+    if bot_key is not None:
+        conditions.append(Conversation.bot_key == bot_key)
+
     conv_stmt = (
         select(Conversation)
-        .where(
-            Conversation.user_id == user_id,
-            Conversation.status == "active",
-            Conversation.external_id.isnot(None),
-        )
+        .where(*conditions)
         .order_by(Conversation.updated_at.desc())
         .limit(1)
     )
@@ -67,6 +78,25 @@ async def _expire_conversation_by_external_id(session, external_id: str) -> None
         .values(status="expired")
     )
     await session.execute(stmt)
+
+
+def _resolve_bot(active_bot_slug: str | None, settings: Settings) -> BotConfig:
+    """Resolve BotConfig from slug or fall back to registry default or legacy setting."""
+    registry = settings.playlab_bots
+    if active_bot_slug and registry:
+        bot = get_bot_by_slug(registry, active_bot_slug)
+        if bot:
+            return bot
+    if registry:
+        default = get_default_bot(registry)
+        if default:
+            return default
+    # Synthesize from legacy single-project settings.
+    return BotConfig(
+        display_name="Default",
+        slug="default",
+        project_id=settings.playlab_project_id,
+    )
 
 
 async def process_inbound_message(
@@ -102,20 +132,28 @@ async def process_inbound_message(
     # Phase 1: DB lookup — ensure user exists and find active conversation.
     existing_conv_id: str | None = None
     user_id: int | None = None
+    active_bot_slug: str | None = _active_bots_fallback.get(pseudonymous_user_id)
     async for session in get_session_or_none():
         if session is not None:
             try:
                 user = await _ensure_user(session, pseudonymous_user_id)
                 user_id = user.id
-                existing_conv_id = await _lookup_conversation_for_user(session, user_id)
+                active_bot_slug = user.active_bot or active_bot_slug
+                existing_conv_id = await _lookup_conversation_for_user(
+                    session, user_id, bot_key=active_bot_slug
+                )
             except Exception:
                 logger.warning("DB lookup failed", exc_info=True)
         break
+
+    # Resolve which bot (and project_id) to use.
+    bot = _resolve_bot(active_bot_slug, settings)
 
     # Phase 2: Call Playlab (reuse existing conversation or create new one).
     reply, used_conv_id, is_new = await _call_playlab(
         message=message_text,
         settings=settings,
+        project_id=bot.project_id,
         conversation_id=existing_conv_id,
     )
 
@@ -139,6 +177,7 @@ async def process_inbound_message(
                         user_id=user_id,
                         external_id=used_conv_id,
                         status="active",
+                        bot_key=active_bot_slug,
                     )
                     session.add(conv)
                     await session.commit()
@@ -157,6 +196,7 @@ async def process_inbound_message(
 async def _call_playlab(
     message: str,
     settings: Settings,
+    project_id: str,
     conversation_id: str | None = None,
 ) -> tuple[str, str, bool]:
     """Call Playlab API, reusing or creating a conversation.
@@ -165,7 +205,7 @@ async def _call_playlab(
     """
     playlab_client = PlaylabService(
         api_key=settings.playlab_api_key,
-        project_id=settings.playlab_project_id,
+        project_id=project_id,
         base_url=settings.playlab_base_url,
         mock_mode=settings.mock_mode,
     )
@@ -261,10 +301,130 @@ async def _handle_reset(sender_id: str, settings: Settings) -> str:
     return "Your conversation history has been cleared. Feel free to start a new conversation!"
 
 
+async def _handle_bots(settings: Settings) -> str:
+    """List available bots with their switch commands."""
+    registry = settings.playlab_bots
+    if not registry:
+        return "No bots are configured. Please ask your administrator to set PLAYLAB_BOTS."
+    lines = ["Available bots:"]
+    for bot in registry:
+        lines.append(f"  {bot.display_name} — /switch {bot.slug}")
+    return "\n".join(lines)
+
+
+async def _handle_current(sender_id: str, settings: Settings) -> str:
+    """Show the currently active bot for this user."""
+    phone_hash = pseudonymize_user_id(sender_id, settings.salt)
+    active_bot_slug: str | None = _active_bots_fallback.get(phone_hash)
+
+    from app.db.engine import get_session_or_none
+    from sqlalchemy import select
+
+    async for session in get_session_or_none():
+        if session is not None:
+            try:
+                from app.db.models import User
+                user_stmt = select(User).where(User.phone_hash == phone_hash)
+                user = (await session.execute(user_stmt)).scalar_one_or_none()
+                if user is not None and user.active_bot:
+                    active_bot_slug = user.active_bot
+            except Exception:
+                logger.warning("_handle_current: DB lookup failed", exc_info=True)
+        break
+
+    bot = _resolve_bot(active_bot_slug, settings)
+    return f"Current bot: {bot.display_name}"
+
+
+async def _handle_switch(sender_id: str, slug: str | None, settings: Settings) -> str:
+    """Switch the active bot for this user."""
+    if not slug:
+        return "Usage: /switch <slug>\nSend /bots to see available bots."
+
+    registry = settings.playlab_bots
+    if not registry:
+        return "No bots are configured. Please ask your administrator to set PLAYLAB_BOTS."
+
+    bot = get_bot_by_slug(registry, slug)
+    if bot is None:
+        available = ", ".join(b.slug for b in registry)
+        return f"Unknown bot '{slug}'. Available: {available}"
+
+    phone_hash = pseudonymize_user_id(sender_id, settings.salt)
+
+    from app.db.engine import get_session_or_none
+
+    switched_in_db = False
+    async for session in get_session_or_none():
+        if session is not None:
+            try:
+                from sqlalchemy import select, update
+
+                from app.db.models import Conversation, User
+
+                user_stmt = select(User).where(User.phone_hash == phone_hash)
+                user = (await session.execute(user_stmt)).scalar_one_or_none()
+                if user is None:
+                    user = User(phone_hash=phone_hash)
+                    session.add(user)
+                    await session.flush()
+                    await session.refresh(user)
+
+                # Expire all active conversations so the next message starts fresh.
+                expire_stmt = (
+                    update(Conversation)
+                    .where(
+                        Conversation.user_id == user.id,
+                        Conversation.status == "active",
+                    )
+                    .values(status="expired")
+                )
+                await session.execute(expire_stmt)
+
+                user.active_bot = slug
+                await session.commit()
+                switched_in_db = True
+                logger.info(
+                    "Switched user=%s... to bot=%s", phone_hash[:8], slug
+                )
+            except Exception:
+                logger.warning("_handle_switch: DB update failed", exc_info=True)
+        break
+
+    if not switched_in_db:
+        # Fallback: remember in-process dict.
+        _active_bots_fallback[phone_hash] = slug
+
+    return f"Switched to {bot.display_name}. Your next message will use this bot."
+
+
+async def _handle_help() -> str:
+    """List all available commands."""
+    return (
+        "Available commands:\n"
+        "  /bots — list available bots\n"
+        "  /switch <slug> — switch to a different bot\n"
+        "  /current — show active bot\n"
+        "  /reset — clear conversation history\n"
+        "  /help — show this message"
+    )
+
+
 async def _process_and_reply(inbound: InboundMessage, settings: Settings) -> str:
-    """Shared logic: handle /reset or get LLM response."""
-    if inbound.text and inbound.text.strip().lower() == "/reset":
+    """Shared logic: dispatch commands or get LLM response."""
+    cmd = parse_command(inbound.text or "")
+    if cmd is None:
+        return await _safe_llm_response(inbound, settings)
+    if cmd.command == CommandType.RESET:
         return await _handle_reset(inbound.sender_id, settings)
+    if cmd.command == CommandType.BOTS:
+        return await _handle_bots(settings)
+    if cmd.command == CommandType.CURRENT:
+        return await _handle_current(inbound.sender_id, settings)
+    if cmd.command == CommandType.SWITCH:
+        return await _handle_switch(inbound.sender_id, cmd.args, settings)
+    if cmd.command == CommandType.HELP:
+        return await _handle_help()
     return await _safe_llm_response(inbound, settings)
 
 
