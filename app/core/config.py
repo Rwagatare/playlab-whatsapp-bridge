@@ -1,5 +1,7 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from app.core.bot_registry import parse_bot_registry
 
 
 @dataclass(frozen=True)
@@ -23,6 +25,7 @@ class Settings:
     anthropic_api_key: str
     claude_model: str
     claude_system_prompt: str
+    playlab_bots: list = field(default_factory=list)
 
 
 def _get_env(name: str) -> str:
@@ -55,6 +58,7 @@ def get_settings() -> Settings:
         "CLAUDE_SYSTEM_PROMPT",
         "You are a helpful assistant on WhatsApp. Keep responses concise and friendly.",
     )
+    playlab_bots = parse_bot_registry(os.getenv("PLAYLAB_BOTS", ""))
     if mock_mode:
         return Settings(
             database_url=_get_env_optional("DATABASE_URL", "mock"),
@@ -79,6 +83,7 @@ def get_settings() -> Settings:
             anthropic_api_key=_get_env_optional("ANTHROPIC_API_KEY", "mock"),
             claude_model=claude_model,
             claude_system_prompt=claude_system_prompt,
+            playlab_bots=playlab_bots,
         )
     return Settings(
         database_url=_get_env_optional("DATABASE_URL", ""),
@@ -103,4 +108,5 @@ def get_settings() -> Settings:
         anthropic_api_key=_get_env_optional("ANTHROPIC_API_KEY", ""),
         claude_model=claude_model,
         claude_system_prompt=claude_system_prompt,
+        playlab_bots=playlab_bots,
     )

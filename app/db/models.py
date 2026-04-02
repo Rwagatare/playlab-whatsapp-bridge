@@ -43,6 +43,9 @@ class User(Base):
         default=_utcnow,
         server_default=text("now()"),
     )
+    active_bot: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, default=None,
+    )
 
     # One user can have many conversations.
     conversations: Mapped[list["Conversation"]] = relationship(
@@ -69,6 +72,10 @@ class Conversation(Base):
         String(255),
         nullable=True,
         default=None,
+    )
+    # Slug of the bot active when this conversation was created.
+    bot_key: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, default=None,
     )
     # "active" or "expired" — used for session timeout (#29).
     status: Mapped[str] = mapped_column(

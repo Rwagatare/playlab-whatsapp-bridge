@@ -6,7 +6,7 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 # Only allow Playlab API requests to go to these domains.
-_ALLOWED_HOSTS = {"www.playlab.ai", "playlab.ai", "api.playlab.ai"}
+_ALLOWED_HOSTS = {"www.playlab.ai", "playlab.ai", "api.playlab.ai", "agent.playlab.ai"}
 _SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
