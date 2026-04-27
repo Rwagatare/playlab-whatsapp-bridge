@@ -22,6 +22,7 @@ dependencies = [
   "python-dotenv",
   "python-multipart",
   "anthropic",
+  "aiosqlite>=0.22.1",
 ]
 
 [project.optional-dependencies]
