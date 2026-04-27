@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -55,7 +56,7 @@ async def receive_webhook(request: Request) -> dict[str, str]:
             _verify_meta_signature(request, raw_body, settings.meta_app_secret)
 
             json_data = await request.json()
-            await handle_meta_message(json_data, settings)
+            asyncio.create_task(handle_meta_message(json_data, settings))
         else:
             # Twilio sends form-encoded data.
             try:
@@ -67,7 +68,7 @@ async def receive_webhook(request: Request) -> dict[str, str]:
                     key: values[0] if values else "" for key, values in parse_qs(raw_body).items()
                 }
             _verify_twilio_signature(request, form_data, settings.twilio_auth_token)
-            await handle_twilio_message(form_data, settings)
+            asyncio.create_task(handle_twilio_message(form_data, settings))
 
         return {"status": "accepted"}
     except HTTPException:

@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import time
 
 from app.commands.parser import CommandType, parse_command
 from app.core.bot_registry import BotConfig, get_bot_by_slug, get_default_bot
@@ -14,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 # In-memory fallback for active bot per user when DB is unavailable.
 _active_bots_fallback: dict[str, str] = {}
+
+# Debounce: tracks the latest message arrival time per user (monotonic clock).
+_last_seen: dict[str, float] = {}
 
 
 async def _ensure_user(session, phone_hash: str):
@@ -435,10 +440,9 @@ async def handle_twilio_message(form_data: dict[str, str], settings: Settings) -
         logger.warning("Could not parse Twilio inbound (missing From?)")
         return
 
-    phone_hash = pseudonymize_user_id(inbound.sender_id, settings.salt)[:8]
-    logger.info("Parsed inbound from user=%s...", phone_hash)
-    response_text = await _process_and_reply(inbound, settings)
-    logger.info("Response ready for user=%s...", phone_hash)
+    phone_hash = pseudonymize_user_id(inbound.sender_id, settings.salt)
+    user_key = phone_hash[:16]
+    logger.info("Parsed inbound from user=%s...", user_key[:8])
 
     twilio_client = TwilioService(
         account_sid=settings.twilio_account_sid,
@@ -446,11 +450,64 @@ async def handle_twilio_message(form_data: dict[str, str], settings: Settings) -
         whatsapp_number=settings.twilio_whatsapp_number,
         mock_mode=settings.mock_mode,
     )
+
+    # Commands are instant — no debounce or thinking UX needed.
+    cmd = parse_command(inbound.text or "")
+    if cmd is not None:
+        response_text = await _process_and_reply(inbound, settings)
+        try:
+            await twilio_client.send_text(to=inbound.sender_id, message=response_text)
+            logger.info("Twilio command response sent to user=%s...", user_key[:8])
+        except Exception as exc:
+            logger.exception("Twilio send failed for command (user=%s...): %s", user_key[:8], exc)
+        return
+
+    # Regular message: debounce 3s, then thinking UX.
+    my_token = time.monotonic()
+    _last_seen[user_key] = my_token
+
+    await asyncio.sleep(3.0)
+
+    if _last_seen.get(user_key) != my_token:
+        logger.info("Debounced message from user=%s...", user_key[:8])
+        return
+
+    # Past the debounce gate — Playlab call starts here.
     try:
+        await twilio_client.send_text(to=inbound.sender_id, message="Thinking...")
+    except Exception:
+        logger.warning("Failed to send Thinking... to user=%s...", user_key[:8], exc_info=True)
+
+    still_working_task = asyncio.create_task(
+        _send_delayed(twilio_client, inbound.sender_id, "Still working on it...", delay=5.0)
+    )
+
+    try:
+        response_text = await process_inbound_message(inbound, settings)
         await twilio_client.send_text(to=inbound.sender_id, message=response_text)
-        logger.info("Twilio send succeeded for user=%s...", phone_hash)
+        logger.info("Twilio response sent to user=%s...", user_key[:8])
     except Exception as exc:
-        logger.exception("Twilio send failed for user=%s...: %s", phone_hash, exc)
+        logger.exception("LLM call failed for user=%s...: %s", user_key[:8], exc)
+        try:
+            await twilio_client.send_text(
+                to=inbound.sender_id, message="Something went wrong, please try again?"
+            )
+        except Exception:
+            logger.warning("Failed to send error message to user=%s...", user_key[:8])
+    finally:
+        still_working_task.cancel()
+        try:
+            await still_working_task
+        except asyncio.CancelledError:
+            pass
+
+
+async def _send_delayed(twilio_client: TwilioService, to: str, message: str, delay: float) -> None:
+    await asyncio.sleep(delay)
+    try:
+        await twilio_client.send_text(to=to, message=message)
+    except Exception:
+        logger.warning("Failed to send delayed message to %s", to, exc_info=True)
 
 
 async def handle_meta_message(json_data: dict, settings: Settings) -> None:
@@ -464,18 +521,99 @@ async def handle_meta_message(json_data: dict, settings: Settings) -> None:
         logger.info("Meta webhook had no inbound message (likely a status update)")
         return
 
-    phone_hash = pseudonymize_user_id(inbound.sender_id, settings.salt)[:8]
-    logger.info("Parsed inbound from user=%s...", phone_hash)
-    response_text = await _process_and_reply(inbound, settings)
-    logger.info("Response ready for user=%s...", phone_hash)
+    phone_hash = pseudonymize_user_id(inbound.sender_id, settings.salt)
+    user_key = phone_hash[:16]
+    logger.info("Parsed inbound from user=%s...", user_key[:8])
 
     meta_client = MetaService(
         access_token=settings.meta_access_token,
         phone_number_id=settings.meta_phone_number_id,
         mock_mode=settings.mock_mode,
     )
+
+    # Commands are instant — no debounce or typing UX needed.
+    cmd = parse_command(inbound.text or "")
+    if cmd is not None:
+        response_text = await _process_and_reply(inbound, settings)
+        try:
+            await meta_client.send_text(to=inbound.sender_id, message=response_text)
+            logger.info("Meta command response sent to user=%s...", user_key[:8])
+        except Exception as exc:
+            logger.exception("Meta send failed for command (user=%s...): %s", user_key[:8], exc)
+        return
+
+    # Regular message: debounce 3s, then typing + read receipt UX.
+    my_token = time.monotonic()
+    _last_seen[user_key] = my_token
+
+    await asyncio.sleep(3.0)
+
+    if _last_seen.get(user_key) != my_token:
+        logger.info("Debounced Meta message from user=%s...", user_key[:8])
+        return
+
+    # Past the debounce gate — Playlab call starts here.
+    # adjustment #2: only mark_read when message_id is present.
+    if inbound.message_id:
+        try:
+            await meta_client.mark_read(inbound.message_id)
+        except Exception:
+            logger.warning("mark_read failed for user=%s...", user_key[:8], exc_info=True)
+
     try:
+        await meta_client.send_typing_on(inbound.sender_id)
+    except Exception:
+        logger.warning("send_typing_on failed for user=%s...", user_key[:8], exc_info=True)
+
+    # adjustment #1: refresh and interim tasks are cancelled in finally so the
+    # typing loop never outlives the handler on either success or error paths.
+    refresh_task = asyncio.create_task(
+        _refresh_typing(meta_client, inbound.sender_id)
+    )
+    interim_task = asyncio.create_task(
+        _send_delayed_meta(meta_client, inbound.sender_id, "One moment, checking that...", delay=2.0)
+    )
+
+    try:
+        response_text = await process_inbound_message(inbound, settings)
         await meta_client.send_text(to=inbound.sender_id, message=response_text)
-        logger.info("Meta send succeeded for user=%s...", phone_hash)
+        logger.info("Meta response sent to user=%s...", user_key[:8])
     except Exception as exc:
-        logger.exception("Meta send failed for user=%s...: %s", phone_hash, exc)
+        logger.exception("LLM call failed for user=%s...: %s", user_key[:8], exc)
+        try:
+            await meta_client.send_text(
+                to=inbound.sender_id, message="Something went wrong, please try again?"
+            )
+        except Exception:
+            logger.warning("Failed to send error message to user=%s...", user_key[:8])
+    finally:
+        # Cancel both background tasks on every exit path (adjustment #1).
+        refresh_task.cancel()
+        interim_task.cancel()
+        for task in (refresh_task, interim_task):
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        try:
+            await meta_client.send_typing_off(inbound.sender_id)
+        except Exception:
+            logger.warning("send_typing_off failed for user=%s...", user_key[:8], exc_info=True)
+
+
+async def _refresh_typing(meta_client, to: str) -> None:
+    """Re-send typing_on every 20s so Meta's 25s expiry doesn't drop the indicator."""
+    while True:
+        await asyncio.sleep(20.0)
+        try:
+            await meta_client.send_typing_on(to)
+        except Exception:
+            logger.warning("_refresh_typing: send_typing_on failed for %s", to, exc_info=True)
+
+
+async def _send_delayed_meta(meta_client, to: str, message: str, delay: float) -> None:
+    await asyncio.sleep(delay)
+    try:
+        await meta_client.send_text(to=to, message=message)
+    except Exception:
+        logger.warning("Failed to send delayed Meta message to %s", to, exc_info=True)

@@ -45,6 +45,7 @@ def parse_inbound(payload: dict) -> InboundMessage | None:
         msg_type = message.get("type", "")
         text = None
         image_url = None
+        message_id: str | None = message.get("id") or None
 
         if msg_type == "text":
             text = message.get("text", {}).get("body")
@@ -55,7 +56,7 @@ def parse_inbound(payload: dict) -> InboundMessage | None:
         if text and len(text) > 10000:
             text = text[:10000]
 
-        return InboundMessage(sender_id=sender, text=text, image_url=image_url)
+        return InboundMessage(sender_id=sender, text=text, image_url=image_url, message_id=message_id)
 
     except (IndexError, KeyError, TypeError):
         logger.warning("Failed to parse Meta webhook payload", exc_info=True)
