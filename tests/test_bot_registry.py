@@ -1,7 +1,5 @@
 """Tests for app/core/bot_registry.py"""
 
-import pytest
-
 from app.core.bot_registry import (
     BotConfig,
     get_bot_by_slug,
@@ -45,7 +43,10 @@ def test_parse_malformed_entries_skipped():
 
 
 def test_parse_real_example_string():
-    env = "AI or Not:ai-or-not:cmd3j9ksa0x03er0u7k9m0pgl,Teachable Machine:teachable-machine:cmddeyhyz0j5rl30uq97hw6mg"
+    env = (
+        "AI or Not:ai-or-not:cmd3j9ksa0x03er0u7k9m0pgl,"
+        "Teachable Machine:teachable-machine:cmddeyhyz0j5rl30uq97hw6mg"
+    )
     result = parse_bot_registry(env)
     assert len(result) == 2
     assert result[0].display_name == "AI or Not"
