@@ -4,6 +4,7 @@ from app.commands.parser import CommandResult, CommandType, parse_command
 
 # --- Plain messages return None ---
 
+
 def test_plain_message_returns_none():
     assert parse_command("Hello there!") is None
 
@@ -18,6 +19,7 @@ def test_none_like_empty_returns_none():
 
 # --- Unknown commands return None ---
 
+
 def test_unknown_command_returns_none():
     assert parse_command("/unknown") is None
 
@@ -27,6 +29,7 @@ def test_bare_slash_returns_none():
 
 
 # --- /bots ---
+
 
 def test_bots_command():
     result = parse_command("/bots")
@@ -39,6 +42,7 @@ def test_bots_command_uppercase():
 
 
 # --- /switch ---
+
 
 def test_switch_with_slug():
     result = parse_command("/switch ai-or-not")
@@ -62,6 +66,7 @@ def test_switch_without_slug():
 
 # --- /current ---
 
+
 def test_current_command():
     result = parse_command("/current")
     assert result == CommandResult(command=CommandType.CURRENT, args=None)
@@ -73,6 +78,7 @@ def test_current_command_uppercase():
 
 
 # --- /help ---
+
 
 def test_help_command():
     result = parse_command("/help")
@@ -86,6 +92,7 @@ def test_help_command_mixed_case():
 
 # --- /reset ---
 
+
 def test_reset_command():
     result = parse_command("/reset")
     assert result == CommandResult(command=CommandType.RESET, args=None)
@@ -97,6 +104,7 @@ def test_reset_command_uppercase():
 
 
 # --- Whitespace handling ---
+
 
 def test_leading_whitespace_is_stripped():
     result = parse_command("  /bots  ")

@@ -33,10 +33,10 @@ def test_parse_two_valid_entries():
 def test_parse_malformed_entries_skipped():
     result = parse_bot_registry(
         "Valid Bot:valid-bot:proj123,"
-        "bad-entry,"           # only 1 part
+        "bad-entry,"  # only 1 part
         ":missing-name:proj,"  # empty display name
-        "no-project:np:,"      # empty project_id
-        "Extra:a:b:c,"         # 4 parts (too many)
+        "no-project:np:,"  # empty project_id
+        "Extra:a:b:c,"  # 4 parts (too many)
     )
     assert len(result) == 1
     assert result[0].slug == "valid-bot"

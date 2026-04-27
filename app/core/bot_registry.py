@@ -4,8 +4,8 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class BotConfig:
     display_name: str  # "AI or Not"
-    slug: str          # "ai-or-not"
-    project_id: str    # "cmd3j9ksa0x03er0u7k9m0pgl"
+    slug: str  # "ai-or-not"
+    project_id: str  # "cmd3j9ksa0x03er0u7k9m0pgl"
 
 
 def parse_bot_registry(env_val: str) -> list[BotConfig]:

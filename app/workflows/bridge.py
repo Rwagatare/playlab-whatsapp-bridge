@@ -56,10 +56,7 @@ async def _lookup_conversation_for_user(
         conditions.append(Conversation.bot_key == bot_key)
 
     conv_stmt = (
-        select(Conversation)
-        .where(*conditions)
-        .order_by(Conversation.updated_at.desc())
-        .limit(1)
+        select(Conversation).where(*conditions).order_by(Conversation.updated_at.desc()).limit(1)
     )
     conv_result = await session.execute(conv_stmt)
     conv = conv_result.scalar_one_or_none()
@@ -330,6 +327,7 @@ async def _handle_current(sender_id: str, settings: Settings) -> str:
         if session is not None:
             try:
                 from app.db.models import User
+
                 user_stmt = select(User).where(User.phone_hash == phone_hash)
                 user = (await session.execute(user_stmt)).scalar_one_or_none()
                 if user is not None and user.active_bot:
@@ -390,9 +388,7 @@ async def _handle_switch(sender_id: str, slug: str | None, settings: Settings) -
                 user.active_bot = slug
                 await session.commit()
                 switched_in_db = True
-                logger.info(
-                    "Switched user=%s... to bot=%s", phone_hash[:8], slug
-                )
+                logger.info("Switched user=%s... to bot=%s", phone_hash[:8], slug)
             except Exception:
                 logger.warning("_handle_switch: DB update failed", exc_info=True)
         break
@@ -568,9 +564,7 @@ async def handle_meta_message(json_data: dict, settings: Settings) -> None:
 
     # adjustment #1: refresh and interim tasks are cancelled in finally so the
     # typing loop never outlives the handler on either success or error paths.
-    refresh_task = asyncio.create_task(
-        _refresh_typing(meta_client, inbound.sender_id)
-    )
+    refresh_task = asyncio.create_task(_refresh_typing(meta_client, inbound.sender_id))
     interim_task = asyncio.create_task(
         _send_delayed_meta(
             meta_client, inbound.sender_id, "One moment, checking that...", delay=2.0
