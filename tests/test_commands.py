@@ -1,9 +1,6 @@
 """Tests for app/commands/parser.py"""
 
-import pytest
-
 from app.commands.parser import CommandResult, CommandType, parse_command
-
 
 # --- Plain messages return None ---
 

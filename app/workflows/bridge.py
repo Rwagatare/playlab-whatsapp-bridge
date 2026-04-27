@@ -322,8 +322,9 @@ async def _handle_current(sender_id: str, settings: Settings) -> str:
     phone_hash = pseudonymize_user_id(sender_id, settings.salt)
     active_bot_slug: str | None = _active_bots_fallback.get(phone_hash)
 
-    from app.db.engine import get_session_or_none
     from sqlalchemy import select
+
+    from app.db.engine import get_session_or_none
 
     async for session in get_session_or_none():
         if session is not None:
@@ -571,7 +572,9 @@ async def handle_meta_message(json_data: dict, settings: Settings) -> None:
         _refresh_typing(meta_client, inbound.sender_id)
     )
     interim_task = asyncio.create_task(
-        _send_delayed_meta(meta_client, inbound.sender_id, "One moment, checking that...", delay=2.0)
+        _send_delayed_meta(
+            meta_client, inbound.sender_id, "One moment, checking that...", delay=2.0
+        )
     )
 
     try:
